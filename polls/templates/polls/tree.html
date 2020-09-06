@@ -1,0 +1,10 @@
+<ul class="tree">
+    {% for name, contents in tree.items %}
+        <li>
+            <span {% if contents %}class="caret"{% endif %}>{{ name }}</span>
+            {% if contents %}
+                {% include "polls/tree.html" with tree=contents only %}
+            {% endif %}
+        </li>
+    {% endfor %}
+</ul>

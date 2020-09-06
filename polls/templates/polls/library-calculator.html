@@ -1,0 +1,36 @@
+{% extends "./base_generic.html" %}
+{% load static %}
+{% block content %}
+    <div class="container">
+        <div class="is-flex">
+            <a href="{% url 'polls:create-task' %}">
+                <button class="button">New</button>
+            </a>
+        </div>
+        <table class="table">
+            <thead>
+            <tr>
+                <th>Task Id</th>
+                <th>Process Id</th>
+                <th>Start Time</th>
+                <th>End Time</th>
+                <th>State</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for task in tasks %}
+                <tr>
+                    <td>{{ task.pk }}</td>
+                    <td>{{ task.pid }}</td>
+                    <td>{{ task.start_time }}</td>
+                    <td>{{ task.end_time }}</td>
+                    <td>{{ task.state }}</td>
+                    <td><a href="/polls/library-calculator/{{ task.pk }}">View</a></td>
+                </tr>
+            {% empty %}
+                No Tasks available
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% endblock %}

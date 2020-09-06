@@ -1,0 +1,25 @@
+{% extends "./base_generic.html" %}
+{% block content %}
+    I am a vibrant Detail Page of {{ index }}
+    <img src="{{ image }}" style="max-width: 1000px" alt="Word Cloud">
+    <table class="table">
+        <thead>
+        <tr>
+            <th>Word</th>
+            <th>Frequency</th>
+            <th>TD-IF</th>
+        </tr>
+        </thead>
+        <tbody>
+        {% for word, frequency, td_if in table %}
+            <tr>
+                <td>{{ word }}</td>
+                <td>{{ frequency }}</td>
+                <td>{{ td_if }}</td>
+            </tr>
+        {% empty %}
+            No Data available
+        {% endfor %}
+        </tbody>
+    </table>
+{% endblock %}

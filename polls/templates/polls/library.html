@@ -1,0 +1,119 @@
+{% extends "./base_generic.html" %}
+{% block content %}
+    <style>
+        /* Remove default bullets */
+        ul.tree {
+            list-style-type: none;
+        }
+
+        /* Create the caret/arrow with a unicode, and style it */
+        .caret::before {
+            content: "\25B6";
+            color: black;
+            display: inline-block;
+            margin-right: 6px;
+        }
+
+        /* Rotate the caret/arrow icon when clicked on (using JavaScript) */
+        .caret-down::before {
+            transform: rotate(90deg);
+        }
+
+        /* Hide the nested list */
+        ul.tree .tree {
+            display: none;
+        }
+
+        .tree li {
+            cursor: pointer;
+            user-select: none; /* Prevent text selection */
+            padding-left: 15px;
+        }
+
+        /* Show the nested list when the user clicks on the caret/arrow (with JavaScript) */
+        .active {
+            display: block !important;
+        }
+
+        .hide {
+            display: none !important;
+        }
+    </style>
+    <div class="columns">
+        <div class="column is-one-quarter">
+            {% include "./tree.html" with tree=dir_tree only %}
+        </div>
+        <div class="column">
+            <span id="item-count">{{ config | length }}</span> Items
+            <table class="table">
+                <thead>
+                <tr>
+                    <th>File</th>
+                    <th>Title</th>
+                    <th>Size</th>
+                </tr>
+                </thead>
+                <tbody>
+                {% for file, id in config.items %}
+                    <tr data="{{ id }}">
+                        <td><a href="/polls/library/{{ id }}">{{ file }}</a></td>
+                        <td></td>
+                        <td></td>
+                    </tr>
+                {% empty %}
+                    No Data available
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <script>
+        // solution of https://www.w3schools.com/howto/howto_js_treeview.asp
+        const toggler = document.getElementsByClassName("caret");
+
+        for (let i = 0; i < toggler.length; i++) {
+            toggler[i].addEventListener("click", function () {
+                this.parentElement.querySelector(".tree").classList.toggle("active");
+                this.classList.toggle("caret-down");
+            });
+        }
+        const treeItems = document.querySelectorAll(".tree li")
+        let previousSelected;
+
+        for (let i = 0; i < treeItems.length; i++) {
+            treeItems[i].addEventListener("click", function (event) {
+                event.stopPropagation();
+
+                console.log("clicked");
+                const text = this.querySelector("span").textContent;
+                let unixPath = text;
+                let windowsPath = text;
+
+                const list = this.parentElement
+                let listParent = list.parentElement
+
+                while (listParent && listParent.tagName.toLowerCase() === "li") {
+                    const text = listParent.querySelector("span").textContent
+                    unixPath = text + "/" + unixPath
+                    windowsPath = text + "\\" + windowsPath
+
+                    listParent = listParent.parentElement.parentElement
+                }
+                const items = document.querySelectorAll("table > tbody > tr > td:nth-child(1)")
+
+                let hidden = 0
+                for (let j = 0; j < items.length; j++) {
+                    const item = items[j]
+
+                    let textContent = item.textContent;
+                    const invisible = !(textContent.startsWith(unixPath) || textContent.startsWith(windowsPath));
+                    hidden += invisible
+                    item.parentElement.classList.toggle("hide", invisible)
+                }
+
+                document.getElementById("item-count").textContent = (items.length - hidden) + "";
+                console.log(`Hidden ${hidden} Elements of ${items.length}, Unix: ${unixPath}, Windows: ${windowsPath}`)
+            });
+        }
+    </script>
+{% endblock %}
