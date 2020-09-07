@@ -237,7 +237,6 @@
 
                 processStateButton.textContent = running ? "Stop" : "Start";
                 queryState().catch(console.error)
-                intervalId = setInterval(queryState, 5000);
             } catch (e) {
                 console.log(e)
             }
@@ -396,19 +395,17 @@
                 stageNodes[message.name] = node = stageTemplate.cloneNode(true).content.firstElementChild;
                 stageContainer.appendChild(node);
             }
-            message.start_time = message.start_time && new Date(message.start_time);
-            message.end_time = message.end_time && new Date(message.end_time);
-            const now = new Date()
+            const startTime = new Date(message.start_time);
 
             node.querySelector(".work-stage").textContent = message.name;
             node.querySelector(".work-current").textContent = message.current + "";
             node.querySelector(".work-total").textContent = message.total + "";
             node.querySelector(".work-state").textContent = message.state;
-            node.querySelector(".work-end").textContent = message.end_time + "";
-            node.querySelector(".work-start").textContent = message.start_time + "";
+            node.querySelector(".work-end").textContent = message.end_time ? new Date(message.end_time).toLocaleString() : "N/A";
+            node.querySelector(".work-start").textContent = startTime.toLocaleString();
 
             if (message.state === "running" || (previousMessage && previousMessage.state === "running")) {
-                const startTime = new Date(message.start_time);
+                const now = new Date();
                 const millisecondsRunning = now - startTime;
                 node.querySelector(".work-running").textContent = toTime(millisecondsRunning, false);
 
@@ -419,6 +416,11 @@
                     message.time_left = msecsLeft;
                     node.querySelector(".work-estimated").textContent = toTime(msecsLeft, false);
                 }
+            } else if (message.end_time) {
+                const endTime = message.end_time ? new Date(message.end_time) : "N/A";
+                const millisecondsRunning = endTime - startTime;
+                node.querySelector(".work-running").textContent = toTime(millisecondsRunning, false);
+                node.querySelector(".work-estimated").textContent = toTime(0, false);
             }
         }
 
