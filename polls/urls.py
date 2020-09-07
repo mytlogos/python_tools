@@ -14,6 +14,7 @@ urlpatterns = [
     path('api/start/<int:pk>/', views.api_start, name='api-start'),
     path('api/stop/<int:pk>/', views.api_stop, name='api-stop'),
     path('api/progress/<int:pk>/', views.api_progress, name='api-progress'),
+    path('api/task/<int:pk>/', views.api_task, name='api-task'),
     path('<int:pk>/', views.DetailView.as_view(), name='detail'),
     path('<int:pk>/results/', views.ResultsView.as_view(), name='results'),
     path('<int:question_id>/vote/', views.vote, name='vote'),

@@ -16,6 +16,7 @@ from django.shortcuts import render, get_object_or_404, redirect
 from django.urls import reverse
 from django.utils import timezone
 from django.views import generic
+from django.forms.models import model_to_dict
 from wordcloud import WordCloud
 
 import pdf
@@ -246,6 +247,17 @@ def api_progress(request, pk):
     if request.method == "GET":
         values = list(TaskStage.objects.filter(task_id=pk).values())
         return django.http.JsonResponse(values, safe=False)
+    else:
+        return django.http.HttpResponseNotAllowed(["GET"])
+
+
+def api_task(request, pk):
+    if request.method == "GET":
+        task = get_object_or_404(Task, pk=pk)
+        value = model_to_dict(task)
+        value["stages"] = list(TaskStage.objects.filter(task_id=pk).values())
+        value["config"] = model_to_dict(task.taskconfig) if task.taskconfig else None
+        return django.http.JsonResponse(value, safe=False)
     else:
         return django.http.HttpResponseNotAllowed(["GET"])
 

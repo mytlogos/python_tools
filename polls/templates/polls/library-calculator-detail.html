@@ -39,13 +39,21 @@
             pointer-events: none;
             opacity: 0.5;
         }
+
+        .progress-container {
+            margin: 1em;
+        }
+
+        .progress-container progress {
+            margin-bottom: 0 !important;
+        }
+
+        .progress-container * {
+            margin-right: 0.5em;
+            white-space: nowrap;
+        }
     </style>
-    <div class="buttons">
-        <div id="process_state" class="button is-primary">Start</div>
-        <a href="{% url 'polls:create-task' %}">
-            <button class="button">New</button>
-        </a>
-    </div>
+
     <div class="columns">
         <div id="states" class="container column is-one-quarter">
             <figure class="image is-square">
@@ -71,22 +79,40 @@
             </figure>
         </div>
         <div class="container column">
+            <div class="level">
+                <div class="level-left level-item progress-container">
+                    <span>Task State:</span>
+                    <span class="task-state tag"> {{ task.state }}</span>
+                    <progress id="process-progress" class="progress is-primary" value="0"></progress>
+                    <span id="process-progress-label">0/0</span>
+                </div>
+                <div class="level-right level-item buttons">
+                    <div id="process_state" class="button is-primary  {{ task.is_finished|yesno:"disabled," }}">Start
+                    </div>
+                    <a href="{% url 'polls:create-task' %}">
+                        <button class="button">New</button>
+                    </a>
+                </div>
+            </div>
             <div class="tabs is-medium">
                 <ul>
                     <li class="is-active">
                         <a>
-                            <span class="icon is-small"><i class="fas fa-cog" aria-hidden="true"></i></span><span>Settings</span>
+                            <span class="icon is-small">
+                                <i class="fas fa-cog" aria-hidden="true"></i>
+                            </span><span>Settings</span>
                         </a>
                     </li>
                     <li>
                         <a>
-                        <span class="icon is-small"><i class="fas fa-cogs"
-                                                       aria-hidden="true"></i></span><span>Process</span>
+                        <span class="icon is-small">
+                            <i class="fas fa-cogs" aria-hidden="true"></i>
+                        </span><span>Process</span>
                         </a>
                     </li>
                 </ul>
             </div>
-            <div class="tab-content active">
+            <div class="tab-content config {{ task.is_running|yesno:",active" }} {{ task.is_finished|yesno:"disabled," }}">
                 <div>
                     <label>
                         Processes:
@@ -94,10 +120,7 @@
                     </label>
                 </div>
             </div>
-            <div class="tab-content">
-                <label>Current Work Progress</label>
-                <progress id="process-progress"></progress>
-                <label id="process-progress-label"></label>
+            <div class="tab-content result {{ task.is_running|yesno:"active," }}">
                 <div class="is-flex stage-container">
                     <div class="work-container">
                         <div class="work-stage">Stage:</div>
@@ -147,31 +170,34 @@
         const tabs = document.querySelectorAll(".tabs li")
         const tabContents = document.querySelectorAll(".tab-content")
 
+        function switchToTab(newTabIndex) {
+            const activeTab = document.querySelector(".tabs li.is-active")
+            const index = Array.prototype.indexOf.call(tabs, activeTab);
+
+            const previousContents = tabContents[index];
+            previousContents.classList.remove("active");
+            activeTab.classList.remove("is-active");
+
+            const nextTab = tabs[newTabIndex];
+            const nextContents = tabContents[newTabIndex];
+            nextContents.classList.add("active");
+            nextTab.classList.add("is-active");
+        }
+
         for (let i = 0; i < tabs.length; i++) {
             /**
              *
              * @type {Element}
              */
             const tabHeader = tabs[i]
-            tabHeader.addEventListener("click", () => {
-                const activeTab = document.querySelector(".tabs li.is-active")
-                const index = Array.prototype.indexOf.call(tabs, activeTab);
-
-                const previousContents = tabContents[index];
-                previousContents.classList.remove("active");
-                activeTab.classList.remove("is-active");
-
-                const nextContents = tabContents[i];
-                nextContents.classList.add("active");
-                tabHeader.classList.add("is-active");
-            });
+            tabHeader.addEventListener("click", () => switchToTab(i));
         }
         let intervalId;
-        let running = {{ task.is_running|yesno:"true,false" }};
+        // assume initially that it does not run
+        // and query for true state (which will set the interval if it is running)
+        let running = false;
+        queryState().catch(console.error)
 
-        if (running) {
-            intervalId = setInterval(queryState, 5000)
-        }
         const outputNode = document.querySelector("#output");
         const stageContainer = document.querySelector(".stage-container");
         const stageNodes = {};
@@ -199,15 +225,21 @@
                     body: JSON.stringify(getConfig())
                 });
                 running = !running;
-                processStateButton.textContent = running ? "Stop" : "Start";
 
                 if (running) {
-                    intervalId = setInterval(queryState, 5000);
+                    // the process tab is the second tab (maybe move to variable instead of magic number)
+                    switchToTab(1);
                 }
-                const value = await response.json();
-                appendLine(outputNode, value);
+
+                if (!response.ok) {
+                    console.error("Failed to start Task");
+                }
+
+                processStateButton.textContent = running ? "Stop" : "Start";
+                queryState().catch(console.error)
+                intervalId = setInterval(queryState, 5000);
             } catch (e) {
-                appendLine(outputNode, e)
+                console.log(e)
             }
         });
 
@@ -223,32 +255,72 @@
 
         async function queryState() {
             try {
-                const response = await fetch("http://localhost:8000/polls/api/progress/{{ task.pk }}/");
+                const response = await fetch("http://localhost:8000/polls/api/task/{{ task.pk }}/");
 
                 if (!response.ok) {
                     return;
                 }
+                /**
+                 * @type {Task}
+                 */
                 const msg = await response.json();
-
-                for (const message of msg) {
-                    if (message.running === false) {
-                        running = false;
-                        clearInterval(intervalId);
-                    }
-                    if (message.name) {
-                        processMessage(message);
-                    }
-                }
+                processTask(msg)
             } catch (reason) {
                 clearInterval(intervalId);
                 console.log("threw something: ", reason);
-                appendLine(outputNode, reason);
             }
+        }
+
+        const currentSuffix = "_current";
+        const totalSuffix = "_total";
+        const stageProgress = {};
+
+        /**
+         * @typedef Task
+         * @property {number} id
+         *  @property {string | Date} start_time
+         * @property {string | Date} end_time
+         * @property {string} state
+         * @property {number} pid
+         * @property {Array<Stage>} stages
+         */
+        /**
+         * @typedef Stage
+         * @property {string} name
+         * @property {number} current
+         * @property {number} total
+         * @property {string} state
+         * @property {string | Date} start_time
+         * @property {string | Date} end_time
+         * @property {number | undefined} time_left
+         */
+
+        /**
+         * Processes and visualizes the current task value.
+         *
+         * @param {Task} task - current task value
+         */
+        function processTask(task) {
+            for (const stage of task.stages) {
+                if (stage.name) {
+                    processStage(stage);
+                }
+            }
+
+            if (task.state !== "running") {
+                clearInterval(intervalId);
+                running = false;
+            } else if (!running) {
+                intervalId = setInterval(queryState, 5000)
+                running = true;
+            }
+
             /**
              * @type {HTMLProgressElement}
              */
             const progressElement = document.querySelector("#process-progress");
             const progressLabel = document.querySelector("#process-progress-label");
+            const taskState = document.querySelector(".progress-container .task-state");
             let total = 0;
             let current = 0;
 
@@ -259,29 +331,42 @@
             progressElement.max = total;
             progressElement.value = current;
             progressLabel.textContent = `${current}/${total}`
-            processStateButton.textContent = running ? "Stop" : "Start";
-            console.log(stageProgress);
+
+            // it should not be possible to a finished state like failed an then a state like NONE or RUNNING
+            // thus we should not need to care about removing the 'disabled' css class
+            if (task.state === "{{ task.NONE }}") {
+                processStateButton.textContent = "Start";
+                taskState.textContent = "None"
+                taskState.className = "task-state tag is-light"
+            } else if (task.state === "{{ task.RUNNING }}") {
+                processStateButton.textContent = "Stop";
+                taskState.textContent = "Running"
+                taskState.className = "task-state tag is-info"
+            } else if (task.state === "{{ task.SUCCEEDED }}") {
+                processStateButton.classList.add("disabled");
+                taskState.textContent = "Succeeded"
+                taskState.className = "task-state tag is-success"
+            } else if (task.state === "{{ task.FAILED }}") {
+                processStateButton.classList.add("disabled");
+                taskState.textContent = "Failed"
+                taskState.className = "task-state tag is-danger"
+            } else if (task.state === "{{ task.CANCELLED }}") {
+                processStateButton.classList.add("disabled");
+                taskState.textContent = "Cancelled"
+                taskState.className = "task-state tag is-warning"
+            }
+            // config should only be configurable when task is not even started
+            if (task.state !== "{{ task.NONE }}") {
+                tabContents[0].classList.add("disabled")
+            }
         }
 
-        const currentSuffix = "_current";
-        const totalSuffix = "_total";
-        const stageProgress = {};
-
         /**
-         * @typedef ProgressMessage
-         * @property {string} name
-         * @property {number} current
-         * @property {number} total
-         * @property {string} state
-         * @property {Date} start_time
-         * @property {Date} end_time
-         * @property {number | undefined} time_left
+         * Processes and visualizes the given stage value.
+         *
+         * @param {Stage} message - current stage progress
          */
-
-        /**
-         * @param {ProgressMessage} message - current stage progress
-         */
-        function processMessage(message) {
+        function processStage(message) {
             const previousMessage = stageProgress[message.name];
             stageProgress[message.name] = message;
             /**
@@ -363,19 +448,6 @@
             }
 
             return fmt;
-        }
-
-        /**
-         *
-         * @param {Element} node
-         * @param {object} value
-         */
-        function appendLine(node, value) {
-            if (value.stage !== undefined) {
-                value = value.message || value.msg;
-            }
-            node.insertAdjacentText("beforeend", JSON.stringify(value).slice(0, 200));
-            node.appendChild(document.createElement("br"));
         }
     </script>
 {% endblock %}
