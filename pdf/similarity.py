@@ -8,9 +8,9 @@ from typing import Tuple, Set, Dict, List, Optional, Union, Any
 
 import numpy as np
 
-from pdf.storage import Result, Storage
-from pdf.tools import file_results, ResultSerializer, get_data_dir, get_config, STORAGE, init_child_process, \
-    get_child_current, get_child_total, get_child_id, FileConfig, Stage, Logger, config_numbers
+from pdf.storage import Result
+from pdf.tools import file_results, ResultSerializer, get_data_dir, get_config, init_child_process, \
+    get_child_current, get_child_total, get_child_id, FileConfig, Stage, config_numbers, get_storage
 
 __all__ = ["SimilarityStage"]
 
@@ -70,11 +70,11 @@ def calculate_work_blocks(available_results, config: FileConfig):
 #             block.append((-1, -1))
 
 def load_indices_result(data_dir: str, index: int, serializer=None) -> Result:
-    result_model = STORAGE.get_result_model()
+    result_model = get_storage().get_result_model()
 
     if result_model.exists(index):
         result = result_model.get(index)
-        result.words = STORAGE.get_map_indices_model().get(index)
+        result.words = get_storage().get_map_indices_model().get(index)
         del result.x
         return result
 
@@ -87,7 +87,7 @@ def init(config: FileConfig):
 
     # get the words among all data (without english stopwords), calculate the vector lengths
 
-    for result in STORAGE.get_result_model().get_many(config_numbers(config)):
+    for result in get_storage().get_result_model().get_many(config_numbers(config)):
         td_if = result.td_if
         del result.x
         words: List[str] = result.words
@@ -103,7 +103,7 @@ def init(config: FileConfig):
 
 
 def calculate_map_indices(cached: Dict[int, Result], total_words):
-    indices_model = STORAGE.get_map_indices_model()
+    indices_model = get_storage().get_map_indices_model()
 
     for result in cached.values():
         words = result.words
@@ -164,7 +164,7 @@ def process_similarity(data_block, last_number, results):
         similarity_matrix[index, index] = 1
 
     # every value on the diagonal is always the same, a value of 1
-    similarity_model = STORAGE.get_similarity_model()
+    similarity_model = get_storage().get_similarity_model()
     similarity_model.save_many([(index, index, 1) for index in range(last_number + 1)])
 
     similarity_model.save_many(results)
@@ -218,7 +218,7 @@ def compare_results(args) -> List[Tuple[int, int, float]]:
     current_data = dict()
     block_lengths += len(block)
 
-    similarity_model = STORAGE.get_similarity_model()
+    similarity_model = get_storage().get_similarity_model()
 
     for pair in block:
         if similarity_model.exists(pair):
@@ -288,25 +288,26 @@ def compare_results(args) -> List[Tuple[int, int, float]]:
     return similarity_result
 
 
-def parallel():
-    pass
-
-
 class SimilarityStage(Stage):
-    def __init__(self, logger: Logger, storage: Storage) -> None:
-        super().__init__(logger, "similarity")
-        self._storage = storage
+    def __init__(self, logger, run_config) -> None:
+        super().__init__(logger, "similarity", run_config)
         self._total_work = None
 
     def compute_work(self) -> int:
         if self._total_work is None:
-            self._total_work = self._storage.get_similarity_model().compute_work()
+            self._total_work = get_storage().get_similarity_model().compute_work()
         return self._total_work
 
-    def sequential(self):
+    def run(self):
         self.report_started()
-        self.check()
+        if self.run_config.processes <= 1:
+            self.sequential()
+        else:
+            self.parallel()
         self.report_finished()
+
+    def sequential(self):
+        self.check()
 
     def check(self):
         config: FileConfig = get_config()

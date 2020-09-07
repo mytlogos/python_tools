@@ -4,28 +4,33 @@ from typing import Tuple, Optional, List
 
 from sklearn.feature_extraction.text import CountVectorizer, TfidfTransformer
 
-from pdf.storage import Result, TextModel, ResultModel
-from pdf.tools import process_files, File, STORAGE, ensure_list, get_child_current, get_child_total, Stage
+from pdf.storage import Result
+from pdf.tools import process_files, File, get_storage, ensure_list, get_child_current, get_child_total, Stage
 
 __all__ = ["ProcessStage"]
 
 
 class ProcessStage(Stage):
 
-    def __init__(self, logger, text_model: TextModel, result_model: ResultModel) -> None:
-        super().__init__(logger, "process")
-        self._text_model = text_model
-        self._result_model = result_model
+    def __init__(self, logger, run_config) -> None:
+        super().__init__(logger, "process", run_config)
         self._total_work = None
 
     def compute_work(self) -> int:
         if self._total_work is None:
-            self._total_work = self._result_model.compute_work()
+            self._total_work = get_storage().get_result_model().compute_work()
         return self._total_work
+
+    def run(self, files, config):
+        self.report_started()
+        if self.run_config.processes <= 1:
+            self.sequential(files, config)
+        else:
+            self.parallel(files, config)
+        self.report_finished()
 
     def sequential(self, files, config):
         self._total_work = len(files)
-        self.report_started()
 
         for index, file in enumerate(files):
             file_config = config[file]
@@ -35,12 +40,11 @@ class ProcessStage(Stage):
             except ValueError as e:
                 self.report_warning(f"Failed Process File: {file}", reason=e)
 
-        self.report_finished()
 
     def check(self, args: Tuple[str, int], **kwargs):
         file, config_index = args
 
-        result_model = STORAGE.get_result_model()
+        result_model = get_storage().get_result_model()
 
         if result_model.exists(config_index):
             result = result_model.get(config_index)
@@ -55,7 +59,7 @@ class ProcessStage(Stage):
         return file_result
 
     def unchecked(self, config_index, file, result_model, *args, **kwargs):
-        text_model = STORAGE.get_text_model()
+        text_model = get_storage().get_text_model()
 
         if text_model.exists(config_index):
             text_data = text_model.get(config_index).strip()
@@ -95,7 +99,7 @@ def get_file_result(args: Tuple[str, int]) -> Optional[File]:
     file, config_index = args
     start = datetime.now()
 
-    result_model = STORAGE.get_result_model()
+    result_model = get_storage().get_result_model()
 
     if result_model.exists(config_index):
         result = result_model.get(config_index)
@@ -108,7 +112,7 @@ def get_file_result(args: Tuple[str, int]) -> Optional[File]:
         words = result.words
         extracted = datetime.now()
     else:
-        text_model = STORAGE.get_text_model()
+        text_model = get_storage().get_text_model()
 
         if text_model.exists(config_index):
             text_data = text_model.get(config_index).strip()

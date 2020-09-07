@@ -1,3 +1,4 @@
+import json
 import multiprocessing as mp
 import os
 import threading
@@ -113,6 +114,12 @@ class QueueHandler(Handler):
     def handle(self, record: ProcessRecord):
         self._buffer.append(record)
 
+        if timezone.is_naive(record.date_time):
+            record.date_time = timezone.make_aware(record.date_time)
+
+        if record.stage:
+            self.update_stage(record, record.stage, record.current, record.total)
+
         # if enough records are amassed (arbitrary limit), save them to database
         if len(self._buffer) > 100:
             self.flush()
@@ -125,17 +132,12 @@ class QueueHandler(Handler):
             except AttributeError:
                 reason = None
 
-            if timezone.is_naive(record.date_time):
-                record.date_time = timezone.make_aware(record.date_time)
-
             messages.append(TaskMessage(current=record.current, total=record.total, level=record.levelname,
                                         content=record.message, date_time=record.date_time, reason=reason,
                                         task=self.task, pid=record.pid, stage=record.stage, state=record.state))
 
-            if record.stage:
-                self.update_stage(record, record.stage, record.current, record.total)
-
         TaskMessage.objects.bulk_create(messages)
+        self._buffer = []
 
     def update_stage(self, record, stage_name, current, total):
         try:
@@ -216,6 +218,7 @@ def monitor_process(task_key):
         with calculator_processes:
             values = calculator_processes.pop(task_key, None)
 
+        exit_code = process.exitcode
         process.close()
         listener.stop()
         handler.flush()
@@ -228,7 +231,7 @@ def monitor_process(task_key):
         task = Task.objects.get(pk=task_key)
 
         if not task.is_finished():
-            task.state = Task.SUCCEEDED if process.exitcode == 0 else Task.FAILED
+            task.state = Task.SUCCEEDED if exit_code == 0 else Task.FAILED
             task.end_time = timezone.now()
             task.save()
     finally:
@@ -265,12 +268,11 @@ def api_start(request: django.http.HttpRequest, pk):
         if pk in calculator_processes or task.is_running():
             return django.http.JsonResponse({"msg": "Existing Process already running"})
 
-        # noinspection PyArgumentList
-        config = request.POST.dict()
+        config = json.loads(request.body.decode("utf8"))
         queue = mp.Queue(5000)
         process = mp.Process(
             target=pdf.run,
-            kwargs={"directory": "D:\\Bücher\\", "message_queue": queue, "config": config}
+            kwargs={"directory": "D:\\Bücher\\", "message_queue": queue, "run_config": config}
         )
         handler = QueueHandler(task_key=pk)
         queue_listener = QueueListener(queue, handler)

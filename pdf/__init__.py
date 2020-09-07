@@ -1,8 +1,7 @@
-import logging
+import json
 import multiprocessing as mp
 from datetime import datetime
-from logging import handlers
-from typing import List, TypedDict, Optional
+from typing import List, TypedDict, Optional, Any, Dict
 
 import numpy as np
 from matplotlib.colors import ListedColormap
@@ -28,38 +27,31 @@ class LogMessage(TypedDict):
     current: Optional[int]
 
 
-class StageLogger(logging.Logger):
+def parse_run_config(config: Optional[Dict[str, Any]]) -> tools.RunConfig:
+    result = dict(processes=1)
 
-    def stage(self):
-        pass
+    if not config:
+        return tools.RunConfig(**result)
 
+    processes = config.get("processes", 1)
 
-def create_logger(queue) -> StageLogger:
-    logger = logging.getLogger("pdf")
-    logger.setLevel(level=logging.INFO)
+    if isinstance(processes, int) and processes > 0:
+        result["processes"] = processes
 
-    stage_level = logging.INFO + 5
-
-    def stage(self: StageLogger, msg, *args, **kwargs):
-        if self.isEnabledFor(stage_level):
-            self._log(stage_level, msg, args, **kwargs)
-
-    logger.stage = stage.__get__(logger, None)
-
-    if queue:
-        logger.addHandler(handlers.QueueHandler(queue))
-    # noinspection PyTypeChecker
-    return logger
+    print(f"Runconfig: {config}, Parsed: {json.dumps(result)}")
+    return tools.RunConfig(**result)
 
 
-def run(*, files: List[str] = None, directory: str = None, extensions=None, message_queue=None, config=None):
+def run(*, files: List[str] = None, directory: str = None, extensions=None, message_queue=None,
+        run_config: Optional[Dict[str, Any]] = None):
     tools.init_child_process(mp.Value("i", 0), mp.Value("i", 0))
 
-    logger = create_logger(message_queue)
+    run_config: tools.RunConfig = parse_run_config(run_config)
+    logger = tools.create_logger(message_queue)
 
-    extract_stage = ExtractStage(logger, tools.STORAGE.get_text_model())
-    process_stage = text_process.ProcessStage(logger, tools.STORAGE.get_text_model(), tools.STORAGE.get_result_model())
-    similarity_stage = similarity.SimilarityStage(logger, tools.STORAGE)
+    extract_stage = ExtractStage(logger, run_config)
+    process_stage = text_process.ProcessStage(logger, run_config)
+    similarity_stage = similarity.SimilarityStage(logger, run_config)
 
     extract_stage.report_progress("Report Work")
     process_stage.report_progress("Report Work")
@@ -77,27 +69,10 @@ def run(*, files: List[str] = None, directory: str = None, extensions=None, mess
     logger.info("Update Config", extra=tools.get_extra())
     tools.update_config(config, files)
 
-    logger.info("Extract Text", extra=tools.get_extra())
-    extract_stage.sequential(files, config)
-
-    logger.info("Process Text", extra=tools.get_extra())
-    process_stage.sequential(files, config)
-
-    logger.info("Calculate Similarity Matrix", extra=tools.get_extra())
-    similarity_stage.sequential()
+    extract_stage.run(files, config, message_queue)
+    process_stage.run(files, config)
+    similarity_stage.run()
     logger.info("Finished All", extra=tools.get_extra(finished=True))
-
-
-def compare(*, files: List[str] = None, directory: str = None, extensions=None, text_only=False) -> None:
-    # transfer_storage(FileStorage(), SqlStorage())
-    # transform_results(ResultSerializer(), LineResultSerializer())
-    # get_words_parallel()
-    pass
-    # if text_only:
-    #     do_in_parallel(save_text, files, directory, extensions, unique_words)
-    # else:
-    #     results = do_in_parallel(get_file_results, files, directory, extensions, unique_words)
-    #     analyze(results)
 
 
 def plot():

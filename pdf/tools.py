@@ -1,11 +1,13 @@
 import json
+import logging
 import multiprocessing as mp
 import os
 import re
-from abc import ABC
+from abc import ABC, abstractmethod
 from datetime import datetime
-from logging import Logger, LogRecord
-from typing import List, Dict, Any, TypeVar, Callable, Optional, TypedDict, Iterable, Tuple, Union, Generator
+from logging import Logger, LogRecord, handlers
+from typing import List, Dict, Any, TypeVar, Callable, Optional, TypedDict, Iterable, Tuple, Union, Generator, \
+    NamedTuple
 
 import numpy as np
 
@@ -14,8 +16,9 @@ from pdf.storage import Storage, SqlStorage
 __all__ = [
     "get_files", "get_child_id", "get_text_dir", "get_data_dir", "get_indices_map_dir", "get_files_mapped",
     "get_child_total", "get_child_current", "get_config", "init_child_process", "do_in_parallel",
-    "necessary_files", "STORAGE", "ensure_list", "unique_words", "ResultSerializer", "LineResultSerializer",
-    "file_results", "set_config", "process_files", "FileConfig", "update_config", "Stage", "get_extra", "File"
+    "necessary_files", "get_storage", "set_storage", "ensure_list", "unique_words", "ResultSerializer",
+    "LineResultSerializer", "file_results", "set_config", "process_files", "FileConfig", "update_config", "Stage",
+    "get_extra", "File", "config_numbers"
 ]
 
 
@@ -115,6 +118,15 @@ def unique_words(other: List[File], values: List[str]) -> List[str]:
 
 
 STORAGE: Storage = SqlStorage()
+
+
+def get_storage() -> Storage:
+    return STORAGE
+
+
+def set_storage(storage: Storage):
+    global STORAGE
+    STORAGE = storage
 
 
 def get_text_dir() -> str:
@@ -422,6 +434,34 @@ class ProcessRecord(LogRecord):
     state: Optional[str]
 
 
+class RunConfig(NamedTuple):
+    processes: int
+
+
+class StageLogger(logging.Logger):
+
+    def stage(self):
+        pass
+
+
+def create_logger(queue) -> StageLogger:
+    logger = logging.getLogger("pdf")
+    logger.setLevel(level=logging.INFO)
+
+    stage_level = logging.INFO + 5
+
+    def stage(self: StageLogger, msg, *args, **kwargs):
+        if self.isEnabledFor(stage_level):
+            self._log(stage_level, msg, args, **kwargs)
+
+    logger.stage = stage.__get__(logger, None)
+
+    if queue:
+        logger.addHandler(handlers.QueueHandler(queue))
+    # noinspection PyTypeChecker
+    return logger
+
+
 class Stage(ABC):
     RUNNING = "running"
     SUCCEEDED = "succeeded"
@@ -429,13 +469,17 @@ class Stage(ABC):
     FAILED = "failed"
     NONE = "none"
 
-    """A Stage of Computation in this Module. """
+    """
+    A Stage of Computation in this Module.
+    Any Instances need to be completely pickleable (See pickling in multiprocessing.Pool).
+    """
 
-    def __init__(self, logger: Logger, name: str) -> None:
+    def __init__(self, logger: Logger, name: str, run_config: RunConfig) -> None:
         self._logger = logger
         self._name = name
         self._task_pid = os.getpid()
         self._state = self.NONE
+        self.run_config = run_config
 
     def compute_work(self) -> int:
         """
@@ -444,8 +488,11 @@ class Stage(ABC):
         """
         return 0
 
+    def _get_logger(self):
+        return self._logger
+
     def report_progress(self, value: Any, current=0, **kwargs):
-        self._logger.info(
+        self._get_logger().info(
             value,
             extra=get_extra(
                 state=self._state,
@@ -462,7 +509,7 @@ class Stage(ABC):
         if "reason" in kwargs:
             kwargs["reason"] = str(kwargs["reason"])
 
-        self._logger.warning(
+        self._get_logger().warning(
             value,
             extra=get_extra(
                 state=self._state,
@@ -473,9 +520,10 @@ class Stage(ABC):
         )
 
     def report_started(self):
+        print(f"Started Stage: {self._name}")
         total = self.compute_work()
         self._state = self.RUNNING
-        self._logger.info(
+        self._get_logger().info(
             f"Started Stage {self._name}",
             extra=get_extra(
                 state=self._state,
@@ -487,9 +535,10 @@ class Stage(ABC):
         )
 
     def report_finished(self):
+        print(f"Finished Stage: {self._name}")
         total = self.compute_work()
         self._state = self.SUCCEEDED
-        self._logger.info(
+        self._get_logger().info(
             f"Finished Stage {self._name}",
             extra=get_extra(
                 state=self._state,
@@ -499,6 +548,23 @@ class Stage(ABC):
                 task_pid=self._task_pid,
             )
         )
+
+    def restore_logger(self, logger: Logger):
+        if self._logger is None:
+            self._logger = logger
+
+    def recreate_logger(self, queue: Optional[mp.Queue]):
+        if self._logger is None:
+            self._logger = create_logger(queue)
+
+    def remove_logger(self) -> Logger:
+        logger = self._logger
+        self._logger = None
+        return logger
+
+    @abstractmethod
+    def run(self, *args, **kwargs):
+        pass
 
     def sequential(self, *args, **kwargs):
         pass

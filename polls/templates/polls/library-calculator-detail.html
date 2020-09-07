@@ -192,7 +192,8 @@
                 const response = await fetch(url, {
                     method: "POST",
                     headers: {
-                        'X-CSRFToken': csrftoken
+                        "X-CSRFToken": csrftoken,
+                        "Content-Type": "application/json"
                     },
                     mode: "same-origin",
                     body: JSON.stringify(getConfig())
@@ -281,6 +282,7 @@
          * @param {ProgressMessage} message - current stage progress
          */
         function processMessage(message) {
+            const previousMessage = stageProgress[message.name];
             stageProgress[message.name] = message;
             /**
              * @type {HTMLElement}
@@ -302,7 +304,7 @@
             node.querySelector(".work-end").textContent = message.end_time + "";
             node.querySelector(".work-start").textContent = message.start_time + "";
 
-            if (message.start_time) {
+            if (message.state === "running" || (previousMessage && previousMessage.state === "running")) {
                 const startTime = new Date(message.start_time);
                 const millisecondsRunning = now - startTime;
                 node.querySelector(".work-running").textContent = toTime(millisecondsRunning, false);
