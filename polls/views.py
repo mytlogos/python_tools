@@ -269,7 +269,8 @@ def api_start(request: django.http.HttpRequest, pk):
             return django.http.JsonResponse({"msg": "Existing Process already running"})
 
         config = json.loads(request.body.decode("utf8"))
-        queue = mp.Queue(5000)
+        # do not limit the number of messages (at the cost of a possible OOM Error)
+        queue = mp.Queue(-1)
         process = mp.Process(
             target=pdf.run,
             kwargs={"directory": "D:\\Bücher\\", "message_queue": queue, "run_config": config}
