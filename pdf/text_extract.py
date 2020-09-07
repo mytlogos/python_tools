@@ -89,7 +89,7 @@ class ExtractStage(tools.Stage):
         if return_data:
             return sub
 
-    def _check_parallel(self, args: Tuple[str, int]):
+    def check_parallel(self, args: Tuple[str, int]):
         file, config_index = args
         self.recreate_logger(MESSAGE_QUEUE)
 
@@ -99,7 +99,6 @@ class ExtractStage(tools.Stage):
             SYNC_CURRENT.value += 1
             current = SYNC_CURRENT.value
 
-        # print(f"PID: {os.getpid()} Extracted from {file} current={current}")
         self.report_progress(f"Extracted from {file}", current=current)
 
     def parallel(self, files, config, queue):
@@ -111,7 +110,7 @@ class ExtractStage(tools.Stage):
 
         try:
             with mp.Pool(self.run_config.processes, initializer=child_initializer, initargs=(current, queue)) as pool:
-                pool.map(self._check_parallel, [(file, config[file]["index"]) for file in files])
+                pool.map(self.check_parallel, [(file, config[file]["index"]) for file in files])
         finally:
             # restore logger, even if pool execution fails
             self.restore_logger(logger)

@@ -70,8 +70,8 @@ def run(*, files: List[str] = None, directory: str = None, extensions=None, mess
     tools.update_config(config, files)
 
     extract_stage.run(files, config, message_queue)
-    process_stage.run(files, config)
-    similarity_stage.run()
+    process_stage.run(files, config, message_queue)
+    similarity_stage.run(message_queue)
     logger.info("Finished All", extra=tools.get_extra(finished=True))
 
 

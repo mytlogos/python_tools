@@ -3,14 +3,13 @@ import json
 import math
 import multiprocessing as mp
 from bisect import bisect_left
-from datetime import datetime
 from typing import Tuple, Set, Dict, List, Optional, Union, Any
 
 import numpy as np
 
 from pdf.storage import Result
-from pdf.tools import file_results, ResultSerializer, get_data_dir, get_config, init_child_process, \
-    get_child_current, get_child_total, get_child_id, FileConfig, Stage, config_numbers, get_storage
+from pdf.tools import file_results, ResultSerializer, get_data_dir, get_config, get_child_id, FileConfig, Stage, \
+    config_numbers, get_storage
 
 __all__ = ["SimilarityStage"]
 
@@ -69,7 +68,7 @@ def calculate_work_blocks(available_results, config: FileConfig):
 #         else:
 #             block.append((-1, -1))
 
-def load_indices_result(data_dir: str, index: int, serializer=None) -> Result:
+def load_indices_result(index: int) -> Result:
     result_model = get_storage().get_result_model()
 
     if result_model.exists(index):
@@ -116,43 +115,6 @@ def calculate_map_indices(cached: Dict[int, Result], total_words):
         indices_model.save(index, words)
 
 
-def get_words_parallel():
-    print(f"{datetime.now()} Parallel Calculation of Similarity Matrix (fake)")
-    config: FileConfig = get_config()
-    last_number = max(map(lambda x: x["index"], config.values()), default=0)
-
-    available_results, vector_lengths = init(config)
-    data_block: Dict[int, List[Tuple[int, int]]] = calculate_work_blocks(available_results, config)
-
-    current_work = [(value, vector_lengths) for value in data_block.values()]
-    total_work = sum([len(value) for value in data_block.values()])
-
-    total = mp.Value("i", int(total_work))
-    current = mp.Value("i", 0)
-    block_id = mp.Value("i", 0)
-
-    cpu_count = max(mp.cpu_count() - 1, 1)
-    init_args = (current, total, block_id)
-
-    with mp.Pool(cpu_count, initializer=init_child_process, initargs=init_args) as pool:
-        start = datetime.now()
-
-        # sequential
-        # init_child_process(*init_args)
-        # results = [compare_results(work) for work in current_work]
-
-        # parallelize the function with the given pool
-        results = pool.map(profile_compare_results, current_work)
-        print(f"Time taken: {datetime.now() - start}")
-
-    similarity_matrix = process_similarity(data_block, last_number, results)
-
-    print(similarity_matrix)
-    np.save("similarity.npy", similarity_matrix)
-    # noinspection PyTypeChecker
-    np.savetxt("similarity.txt", similarity_matrix)
-
-
 def process_similarity(data_block, last_number, results):
     empty_list = []
     # flatten the result list, TODO: apparently result_list can be None??
@@ -190,102 +152,15 @@ def process_similarity(data_block, last_number, results):
     return similarity_matrix
 
 
-def profile_compare_results(args):
-    child_id = get_child_id()
-
-    with child_id.get_lock():
-        child_id.value += 1
-        block_id = child_id.value
-    print(f"Comparing Block {block_id}")
-
-    # profile the statement within the same subprocess
-    cProfile.runctx("compare_results(args)", globals(), locals(), f"subprocess-block-{block_id}.pstat")
+SYNC_CURRENT: Optional[mp.Value] = None
+MESSAGE_QUEUE: Optional[mp.Queue] = None
 
 
-def compare_results(args) -> List[Tuple[int, int, float]]:
-    child_current = get_child_current()
-    child_total = get_child_total()
-
-    block, vector_lengths = args
-
-    data_dir = get_data_dir()
-    similarity_result = []
-    block_lengths = 0
-    loaded_data = 0
-    processed = 0
-
-    required_results = set()
-    current_data = dict()
-    block_lengths += len(block)
-
-    similarity_model = get_storage().get_similarity_model()
-
-    for pair in block:
-        if similarity_model.exists(pair):
-            continue
-
-        required_results.update(pair)
-
-    for required_index in required_results:
-        try:
-            current_data[required_index] = load_indices_result(data_dir, required_index)
-        except json.decoder.JSONDecodeError as e:
-            print(f"Failed for Index {required_index}")
-            raise e
-
-    loaded_data += len([value for value in current_data.values() if value])
-
-    for pair in block:
-        config_index, other_config_index = pair
-        result = current_data.get(config_index)
-        other_result = current_data.get(other_config_index)
-
-        # may be None if the result file does not exist (original is not extractable or has no text)
-        # or is calculated already
-        if not result or not other_result:
-            continue
-
-        words = result.words
-        words_set = set(words.keys())
-        td_if = result.td_if
-        other_words = other_result.words
-        other_td_if = other_result.td_if
-
-        other_words_set = set(other_words.keys())
-        common_words_indices = words_set.intersection(other_words_set)
-
-        indices = np.zeros(len(common_words_indices), dtype=int)
-        other_indices = np.zeros(len(common_words_indices), dtype=int)
-
-        for index, word_index in enumerate(common_words_indices):
-            result_index = words[word_index]
-            other_result_index = other_words[word_index]
-
-            indices[index] = result_index
-            other_indices[index] = other_result_index
-
-        product_array: np.ndarray = td_if[indices] * other_td_if[other_indices]
-        dot_sum = product_array.sum()
-
-        length_product = vector_lengths[config_index] * vector_lengths[other_config_index]
-        cosine_similarity = dot_sum / length_product
-        similarity_result.append((config_index, other_config_index, cosine_similarity))
-
-        processed += 1
-
-        if (processed % 1000) == 0:
-            with child_current.get_lock():
-                child_current.value += 1000
-                current_value = child_current.value
-
-            print(f"{datetime.now()} Compared {current_value}/{child_total.value}")
-
-    with child_current.get_lock():
-        child_current.value += processed % 1000
-
-    print(f"Work amount: {block_lengths}, Loaded Data {loaded_data}, Calculated Results: {len(similarity_result)}")
-    print(f"{datetime.now()} Finished comparing {child_current.value}/{child_total.value}")
-    return similarity_result
+def child_initializer(sync_current, queue):
+    global SYNC_CURRENT
+    global MESSAGE_QUEUE
+    SYNC_CURRENT = sync_current
+    MESSAGE_QUEUE = queue
 
 
 class SimilarityStage(Stage):
@@ -298,12 +173,12 @@ class SimilarityStage(Stage):
             self._total_work = get_storage().get_similarity_model().compute_work()
         return self._total_work
 
-    def run(self):
+    def run(self, queue: Optional[mp.Queue]):
         self.report_started()
         if self.run_config.processes <= 1:
             self.sequential()
         else:
-            self.parallel()
+            self.parallel(queue)
         self.report_finished()
 
     def sequential(self):
@@ -389,5 +264,125 @@ class SimilarityStage(Stage):
     def unchecked(self, *args, **kwargs):
         super().unchecked(*args, **kwargs)
 
-    def parallel(self, *args, **kwargs):
-        super().parallel(*args, **kwargs)
+    def parallel(self, queue: Optional[mp.Queue], *args, **kwargs):
+        config: FileConfig = get_config()
+        last_number = max(map(lambda x: x["index"], config.values()), default=0)
+
+        available_results, vector_lengths = init(config)
+        # todo: make this algorithm configurable?
+        data_block: Dict[int, List[Tuple[int, int]]] = calculate_work_blocks(available_results, config)
+
+        current_work = [(value, vector_lengths) for value in data_block.values()]
+        self._total_work = sum([len(value) for value in data_block.values()])
+
+        current = mp.Value("i", 0)
+
+        init_args = (current, queue)
+
+        with mp.Pool(self.run_config.processes, initializer=child_initializer, initargs=init_args) as pool:
+            # parallelize the function with the given pool
+            results = pool.map(self.check_parallel, current_work)
+
+        similarity_matrix = process_similarity(data_block, last_number, results)
+        np.save("similarity.npy", similarity_matrix)
+        # noinspection PyTypeChecker
+        np.savetxt("similarity.txt", similarity_matrix)
+
+    def check_parallel(self, args: Tuple[List[Tuple[int, int]], Dict[int, float]]) -> List[Tuple[int, int, float]]:
+        self.recreate_logger(MESSAGE_QUEUE)
+        result = self.compare_results(args)
+        return result
+
+    def compare_results(self, args: Tuple[List[Tuple[int, int]], Dict[int, float]]) -> List[Tuple[int, int, float]]:
+        child_current = SYNC_CURRENT
+
+        block, vector_lengths = args
+
+        similarity_result = []
+        block_lengths = 0
+        loaded_data = 0
+        processed = 0
+
+        required_results = set()
+        current_data = dict()
+        block_lengths += len(block)
+
+        similarity_model = get_storage().get_similarity_model()
+
+        for pair in block:
+            if similarity_model.exists(pair):
+                continue
+
+            required_results.update(pair)
+
+        for required_index in required_results:
+            try:
+                current_data[required_index] = load_indices_result(required_index)
+            except json.decoder.JSONDecodeError as e:
+                print(f"Failed for Index {required_index}")
+                raise e
+
+        loaded_data += len([value for value in current_data.values() if value])
+
+        for pair in block:
+            config_index, other_config_index = pair
+            result = current_data.get(config_index)
+            other_result = current_data.get(other_config_index)
+
+            # may be None if the result file does not exist (original is not extractable or has no text)
+            # or is calculated already
+            if not result or not other_result:
+                continue
+
+            words = result.words
+            words_set = set(words.keys())
+            td_if = result.td_if
+            other_words = other_result.words
+            other_td_if = other_result.td_if
+
+            other_words_set = set(other_words.keys())
+            common_words_indices = words_set.intersection(other_words_set)
+
+            indices = np.zeros(len(common_words_indices), dtype=int)
+            other_indices = np.zeros(len(common_words_indices), dtype=int)
+
+            for index, word_index in enumerate(common_words_indices):
+                result_index = words[word_index]
+                other_result_index = other_words[word_index]
+
+                indices[index] = result_index
+                other_indices[index] = other_result_index
+
+            product_array: np.ndarray = td_if[indices] * other_td_if[other_indices]
+            dot_sum = product_array.sum()
+
+            length_product = vector_lengths[config_index] * vector_lengths[other_config_index]
+            cosine_similarity = dot_sum / length_product
+            similarity_result.append((config_index, other_config_index, cosine_similarity))
+
+            processed += 1
+
+            if (processed % 1000) == 0:
+                with child_current.get_lock():
+                    child_current.value += 1000
+                    current_value = child_current.value
+                self.report_progress("Progressed", current=current_value)
+
+        with child_current.get_lock():
+            child_current.value += processed % 1000
+            current_value = child_current.value
+        self.report_progress("Progressed", current=current_value)
+
+        return similarity_result
+
+    # noinspection PyMethodMayBeStatic
+    def profile_compare_results(self, args):
+        child_id = get_child_id()
+
+        with child_id.get_lock():
+            child_id.value += 1
+            block_id = child_id.value
+        print(f"Comparing Block {block_id}")
+
+        # profile the statement within the same subprocess
+        cProfile.runctx("self.compare_results(args)", globals(), locals(), f"subprocess-block-{block_id}.pstat")
