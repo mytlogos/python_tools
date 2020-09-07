@@ -11,18 +11,18 @@ import django
 import matplotlib.pyplot as plt
 import numpy as np
 from django.core.serializers.json import DjangoJSONEncoder
+from django.forms.models import model_to_dict
 from django.http import HttpResponseRedirect, Http404
 from django.shortcuts import render, get_object_or_404, redirect
 from django.urls import reverse
 from django.utils import timezone
 from django.views import generic
-from django.forms.models import model_to_dict
 from wordcloud import WordCloud
 
 import pdf
 from pdf import SqlStorage
 from pdf.tools import ProcessRecord
-from .models import Question, Choice, Task, TaskMessage, TaskStage, Runnable
+from .models import Question, Choice, Task, TaskMessage, TaskStage, Runnable, TaskConfig
 
 
 class IndexView(generic.ListView):
@@ -99,6 +99,7 @@ def library_calculator_detail(request, pk):
 
 def create_task(request):
     task = Task.objects.create()
+    TaskConfig.objects.create(task=task)
     return redirect("polls:library-calculator-detail", pk=task.pk)
 
 
@@ -281,6 +282,12 @@ def api_start(request: django.http.HttpRequest, pk):
             return django.http.JsonResponse({"msg": "Existing Process already running"})
 
         config = json.loads(request.body.decode("utf8"))
+
+        if config["processes"] >= 1:
+            task_config, _ = TaskConfig.objects.get_or_create(task_id=pk)
+            task_config.processes = config["processes"]
+            task_config.save()
+
         # do not limit the number of messages (at the cost of a possible OOM Error)
         queue = mp.Queue(-1)
         process = mp.Process(

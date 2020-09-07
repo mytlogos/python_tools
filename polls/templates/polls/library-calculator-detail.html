@@ -253,6 +253,16 @@
             }
         }
 
+        /**
+         * Updates the config part of the gui.
+         *
+         * @param {Config} config
+         */
+        function setConfig(config) {
+            const processNumberInput = document.getElementById("process-number");
+            processNumberInput.valueAsNumber = config.processes;
+        }
+
         async function queryState() {
             try {
                 const response = await fetch("http://localhost:8000/polls/api/task/{{ task.pk }}/");
@@ -278,11 +288,12 @@
         /**
          * @typedef Task
          * @property {number} id
-         *  @property {string | Date} start_time
+         * @property {string | Date} start_time
          * @property {string | Date} end_time
          * @property {string} state
          * @property {number} pid
          * @property {Array<Stage>} stages
+         * @property {Config} config
          */
         /**
          * @typedef Stage
@@ -293,6 +304,13 @@
          * @property {string | Date} start_time
          * @property {string | Date} end_time
          * @property {number | undefined} time_left
+         */
+
+        /**
+         * @typedef Config
+         * @property {number} id
+         * @property {number} task
+         * @property {number} processes
          */
 
         /**
@@ -350,7 +368,7 @@
                 processStateButton.classList.add("disabled");
                 taskState.textContent = "Failed"
                 taskState.className = "task-state tag is-danger"
-            } else if (task.state === "{{ task.CANCELLED }}") {
+            } else if (task.state === "{{ task.CANCELED }}") {
                 processStateButton.classList.add("disabled");
                 taskState.textContent = "Cancelled"
                 taskState.className = "task-state tag is-warning"
