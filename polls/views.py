@@ -259,6 +259,10 @@ def api_task(request, pk):
         value["stages"] = list(TaskStage.objects.filter(task_id=pk).values())
         value["config"] = model_to_dict(task.taskconfig) if task.taskconfig else None
         return django.http.JsonResponse(value, safe=False)
+    elif request.method == "DELETE":
+        task = get_object_or_404(Task, pk=pk)
+        task.delete()
+        return django.http.JsonResponse({"message": "success"})
     else:
         return django.http.HttpResponseNotAllowed(["GET"])
 

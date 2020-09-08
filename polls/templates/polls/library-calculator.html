@@ -1,6 +1,7 @@
 {% extends "./base_generic.html" %}
 {% load static %}
 {% block content %}
+    {% csrf_token %}
     <div class="container">
         <div class="is-flex">
             <a href="{% url 'polls:create-task' %}">
@@ -26,6 +27,8 @@
                     <td>{{ task.end_time }}</td>
                     <td>{{ task.state }}</td>
                     <td><a href="/polls/library-calculator/{{ task.pk }}">View</a></td>
+                    <td><a class="delete-task"><i class="fas fa-trash has-text-danger-dark"></i></a>
+                    </td>
                 </tr>
             {% empty %}
                 No Tasks available
@@ -33,4 +36,62 @@
             </tbody>
         </table>
     </div>
+    <div class="modal delete-confirmation">
+        <div class="modal-background"></div>
+        <div class="modal-content">
+            Are you sure you want to delete?
+            <button class="button is-danger">Yes</button>
+            <button class="button is-primary">No</button>
+        </div>
+        <button class="modal-close is-large" aria-label="close"></button>
+    </div>
+    <script>
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    // Does this cookie string begin with the name we want?
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+
+        const csrftoken = getCookie('csrftoken');
+        const deleteLinks = document.getElementsByClassName("delete-task");
+        for (let i = 0; i < deleteLinks.length; i++) {
+            const item = deleteLinks.item(i);
+            item.addEventListener("click", async () => {
+                const row = item.parentElement.parentElement;
+                const taskId = Number(row.firstElementChild.textContent);
+
+                if (!Number.isInteger(taskId)) {
+                    console.warn(`Not a Number in the first column of row ${i}: ${row.firstElementChild.textContent}`);
+                    return;
+                }
+                const url = `http://localhost:8000/polls/api/task/${taskId}/`;
+
+                try {
+                    const response = await fetch(url, {
+                        method: "DELETE",
+                        headers: {
+                            "X-CSRFToken": csrftoken,
+                        },
+                        mode: "same-origin",
+                    });
+                    if (response.ok) {
+                        // remove the row of item from the dom
+                        row.remove();
+                    }
+                } catch (e) {
+                    console.log(e);
+                }
+            });
+        }
+    </script>
 {% endblock %}
