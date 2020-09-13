@@ -8,7 +8,7 @@ from typing import Tuple, Set, Dict, List, Optional, Union, Any
 import numpy as np
 
 from pdf.storage import Result
-from pdf.tools import file_results, ResultSerializer, get_data_dir, get_config, get_child_id, FileConfig, Stage, \
+from pdf.tools import file_results, ResultSerializer, get_data_dir, get_config, FileConfig, Stage, \
     config_numbers, get_storage
 
 __all__ = ["SimilarityStage"]
@@ -319,7 +319,7 @@ class SimilarityStage(Stage):
             try:
                 current_data[required_index] = load_indices_result(required_index)
             except json.decoder.JSONDecodeError as e:
-                print(f"Failed for Index {required_index}")
+                self.report_warning(f"Failed for Index {required_index}", reason=e)
                 raise e
 
         loaded_data += len([value for value in current_data.values() if value])
@@ -377,12 +377,8 @@ class SimilarityStage(Stage):
 
     # noinspection PyMethodMayBeStatic
     def profile_compare_results(self, args):
-        child_id = get_child_id()
-
-        with child_id.get_lock():
-            child_id.value += 1
-            block_id = child_id.value
-        print(f"Comparing Block {block_id}")
+        # todo: get block id
+        block_id = 1
 
         # profile the statement within the same subprocess
         cProfile.runctx("self.compare_results(args)", globals(), locals(), f"subprocess-block-{block_id}.pstat")

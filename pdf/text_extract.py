@@ -35,10 +35,8 @@ class ExtractStage(tools.Stage):
         self.report_started()
 
         if self.run_config.processes <= 1:
-            print("Running sequential")
             self.sequential(files, config)
         else:
-            print("Running parallel")
             self.parallel(files, config, queue)
         self.report_finished()
 

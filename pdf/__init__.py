@@ -38,14 +38,11 @@ def parse_run_config(config: Optional[Dict[str, Any]]) -> tools.RunConfig:
     if isinstance(processes, int) and processes > 0:
         result["processes"] = processes
 
-    print(f"Runconfig: {config}, Parsed: {json.dumps(result)}")
     return tools.RunConfig(**result)
 
 
 def run(*, files: List[str] = None, directory: str = None, extensions=None, message_queue=None,
         run_config: Optional[Dict[str, Any]] = None):
-    tools.init_child_process(mp.Value("i", 0), mp.Value("i", 0))
-
     run_config: tools.RunConfig = parse_run_config(run_config)
     logger = tools.create_logger(message_queue)
 
@@ -87,8 +84,6 @@ def plot():
 
             if not value and mirror_value:
                 similarity_matrix[it.multi_index] = mirror_value
-            # if value > 0.5:
-            #     print(f"{value} similarity for ({row},{column})")
 
     similarity_matrix = similarity_matrix[:100, :100]
     row_labels = list(range(similarity_matrix.shape[0]))

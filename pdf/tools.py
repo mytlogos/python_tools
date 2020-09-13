@@ -14,10 +14,9 @@ import numpy as np
 from pdf.storage import Storage, SqlStorage
 
 __all__ = [
-    "get_files", "get_child_id", "get_text_dir", "get_data_dir", "get_indices_map_dir", "get_files_mapped",
-    "get_child_total", "get_child_current", "get_config", "init_child_process", "do_in_parallel",
+    "get_files", "get_text_dir", "get_data_dir", "get_indices_map_dir", "get_files_mapped", "get_config",
     "necessary_files", "get_storage", "set_storage", "ensure_list", "unique_words", "ResultSerializer",
-    "LineResultSerializer", "file_results", "set_config", "process_files", "FileConfig", "update_config", "Stage",
+    "LineResultSerializer", "file_results", "set_config", "FileConfig", "update_config", "Stage",
     "get_extra", "File", "config_numbers"
 ]
 
@@ -73,32 +72,6 @@ def get_files_mapped(directory: str, extensions: Iterable[str]) -> Dir:
                 file_path = os.path.join(dir_path, name)
                 dir_content.append(file_path)
     return dir_files
-
-
-child_current: Optional[mp.Value] = None
-child_total: Optional[mp.Value] = None
-child_id: Optional[mp.Value] = None
-
-
-def get_child_current():
-    return child_current
-
-
-def get_child_total():
-    return child_total
-
-
-def get_child_id():
-    return child_id
-
-
-def init_child_process(current: mp.Value, total: mp.Value, id: mp.Value = None):
-    global child_current
-    global child_total
-    global child_id
-    child_current = current
-    child_total = total
-    child_id = id
 
 
 class File(TypedDict):
@@ -195,18 +168,6 @@ def file_results(config: FileConfig, data_dir, ignore=None, serializer=None, fie
             # print(f"Expected File {data_file} to exist.")
 
 
-def process_files(pool, config: FileConfig, files, function: ParallelFunction[T]) -> List[T]:
-    start = datetime.now()
-
-    update_config(config, files)
-
-    # parallelize the function with the given pool
-    results = pool.map(function, [(file, config[file]["index"]) for file in files])
-    results = [result for result in results if result]
-    print(f"Time taken: {datetime.now() - start}")
-    return results
-
-
 def config_numbers(config: FileConfig) -> List[int]:
     return [value["index"] for value in config.values()]
 
@@ -241,27 +202,6 @@ def necessary_files(extensions: Iterable[str], files: Optional[List[str]], direc
         total_length = len(files)
 
     return files, total_length
-
-
-def do_in_parallel(function: Function[T], files: List[str], directory: str, extensions) -> List[T]:
-    files, total_length = necessary_files(extensions, files, directory)
-    config: FileConfig = get_config()
-
-    total = mp.Value("i", total_length)
-    current = mp.Value("i", 0)
-
-    cpu_count = max(mp.cpu_count() - 1, 1)
-    init_args = (current, total)
-    with mp.Pool(cpu_count, initializer=init_child_process, initargs=init_args) as pool:
-        if files.items:
-            result = []
-            for dir_path, content in files.items():
-                intermediary_result = function(pool, config, content)
-                result.extend(intermediary_result)
-                print(f"{current.value}/{total.value}: Files Directory of '{dir_path}' finished.")
-        else:
-            result = function(pool, config, files)
-    return result
 
 
 class ResultSerializer:
@@ -520,7 +460,6 @@ class Stage(ABC):
         )
 
     def report_started(self):
-        print(f"Started Stage: {self._name}")
         total = self.compute_work()
         self._state = self.RUNNING
         self._get_logger().info(
@@ -535,7 +474,6 @@ class Stage(ABC):
         )
 
     def report_finished(self):
-        print(f"Finished Stage: {self._name}")
         total = self.compute_work()
         self._state = self.SUCCEEDED
         self._get_logger().info(
